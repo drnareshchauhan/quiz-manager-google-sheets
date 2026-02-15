@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <meta charset="utf-8" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 12px;
+      background: #f9fafb;
+      color: #111;
+    }
+
+    h2 {
+      text-align: center;
+      color: #1f2937;
+      margin: 0 0 12px;
+    }
+
+    label {
+      display: block;
+      margin-top: 8px;
+      font-weight: 600;
+      color: #374151;
+      font-size: 13px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+      box-sizing: border-box;
+    }
+
+    button {
+      margin-top: 10px;
+      padding: 10px 12px;
+      width: 100%;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .btn-save {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .btn-clear {
+      background: #6b7280;
+      color: #fff;
+    }
+
+    .btn-create {
+      background: #0ea5a4;
+      color: #fff;
+    }
+
+    .btn-sync {
+      background: #16a34a;
+      color: #fff;
+    }
+
+    .btn-export {
+      background: #f59e0b;
+      color: #fff;
+    }
+
+    .msg {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .success {
+      background: #ecfdf5;
+      border: 1px solid #34d399;
+      color: #065f46;
+    }
+
+    .error {
+      background: #fff1f2;
+      border: 1px solid #fb7185;
+      color: #9f1239;
+    }
+
+    #status {
+      display: none;
+      white-space: pre-line;
+    }
+
+    #analytics {
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #e6e6e6;
+    }
+
+    .stat {
+      font-size: 14px;
+      color: #0f5132;
+      margin: 6px 0;
+    }
+
+    #recent {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #374151;
+      max-height: 160px;
+      overflow: auto;
+    }
+
+    .recent-row {
+      padding: 8px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      margin-bottom: 8px;
+    }
+
+    a.link {
+      color: #2563eb;
+      text-decoration: none;
+      word-break: break-all;
+      display: inline-block;
+      margin-top: 6px;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>📋 Quiz Manager</h2>
+
+  <label>Google Form URL / ID</label>
+  <input type="text" id="formId" placeholder="Paste Form URL or ID">
+
+  <label>Google Sheet URL / ID</label>
+  <input type="text" id="sheetId" placeholder="Paste Sheet URL or ID">
+
+  <label>Number of Questions</label>
+  <input type="number" id="numQ" value="10" min="1">
+
+  <label>Form Titles (comma separated, optional)</label>
+  <input type="text" id="formTitles" placeholder="e.g. Health, Water, Environment">
+
+  <button class="btn-save" onclick="saveConfig()">💾 Save Configuration</button>
+  <button class="btn-clear" onclick="clearConfig()">🗑️ Clear Config</button>
+
+  <button class="btn-create" onclick="createQuiz()">🆕 Create Quiz</button>
+  <button class="btn-sync" onclick="syncSheet()">🔄 Sync Quiz to Sheet</button>
+  <button class="btn-export" onclick="exportWord()">📤 Export to Word</button>
+
+  <div id="status"></div>
+
+  <div id="analytics">
+    <strong>Usage & Analytics</strong>
+    <div id="stats" class="small">Loading analytics…</div>
+    <div id="recent"></div>
+  </div>
+
+  <div id="msg" style="margin-top:12px;"></div>
+
+  <script>
+    // Helper: show a message in the msg box (type: success/error)
+      function showMessage(type, text, url) {
+        var msgDiv = document.getElementById("msg");
+        var cls = (type === "success") ? "msg success" : "msg error";
+        var html = "<div class='" + cls + "'>" + text;
+        if (url) html += "<br><a class='link' href='" + url + "' target='_blank' rel='noopener'>" + url + "</a>";
+        html += "</div>";
+        msgDiv.innerHTML = html;
+        // also show transient status for quick feedback
+        showStatus(text, (type === "success") ? "success" : "error");
+      }
+
+      // Show a short status in the top status box
+      function showStatus(text, type) {
+        var box = document.getElementById("status");
+        box.style.display = "block";
+        box.className = (type === "success") ? "msg success" : (type === "error") ? "msg error" : "";
+        box.innerText = text;
+        // auto-hide after 3.5s
+        setTimeout(function(){ box.style.display = "none"; }, 3500);
+      }
+
+      // Load saved configuration on open
+      function loadConfiguration() {
+        google.script.run.withSuccessHandler(function(cfg) {
+          if (cfg.formId) document.getElementById("formId").value = cfg.formId;
+          if (cfg.sheetId) document.getElementById("sheetId").value = cfg.sheetId;
+          if (cfg.numQ) document.getElementById("numQ").value = cfg.numQ;
+          if (cfg.formTitles) document.getElementById("formTitles").value = cfg.formTitles;
+        }).withFailureHandler(function(err){
+          showMessage("error", "Failed to load config: " + err.message);
+        }).loadConfig();
+      }
+
+      // Save config
+      function saveConfig() {
+        var data = getInputs();
+        google.script.run.withSuccessHandler(function(msg){
+          showMessage("success", msg);
+          updateAnalytics();
+        }).withFailureHandler(function(err){
+          showMessage("error", "Save failed: " + err.message);
+        }).saveConfig(data);
+      }
+
+      // Clear config (user properties)
+      function clearConfig() {
+        if (!confirm("Clear saved configuration (form/sheet/numQ/formTitles)?")) return;
+        google.script.run.withSuccessHandler(function(msg){
+          document.getElementById("formId").value = "";
+          document.getElementById("sheetId").value = "";
+          document.getElementById("numQ").value = "10";
+          document.getElementById("formTitles").value = "";
+          showMessage("success", msg);
+          updateAnalytics();
+        }).withFailureHandler(function(err){
+          showMessage("error", "Clear failed: " + err.message);
+        }).clearConfiguration();
+      }
+
+      // Build inputs object
+      function getInputs() {
+        return {
+          formId: document.getElementById("formId").value.trim(),
+          sheetId: document.getElementById("sheetId").value.trim(),
+          numQ: document.getElementById("numQ").value.trim(),
+          formTitles: document.getElementById("formTitles").value.trim()
+        };
+      }
+
+      // Create quiz (calls server)
+      function createQuiz() {
+        showStatus("⏳ Creating quiz…", "info");
+        google.script.run.withSuccessHandler(function(res){
+          if (res && res.url) showMessage("success", res.message, res.url);
+          else if (res && res.message) showMessage("success", res.message);
+          else showMessage("success", "Quiz created");
+          updateAnalytics();
+        }).withFailureHandler(function(err){
+          showMessage("error", "Create quiz failed: " + (err.message || err));
+          updateAnalytics();
+        }).runCreateQuiz(getInputs());
+      }
+
+      // Sync form to sheet
+      function syncSheet() {
+        showStatus("⏳ Syncing form to sheet…", "info");
+        google.script.run.withSuccessHandler(function(res){
+          if (res && res.url) showMessage("success", res.message, res.url);
+          else if (res && res.message) showMessage("success", res.message);
+          else showMessage("success", "Sync completed");
+          updateAnalytics();
+        }).withFailureHandler(function(err){
+          showMessage("error", "Sync failed: " + (err.message || err));
+          updateAnalytics();
+        }).runExportSheet(getInputs());
+      }
+
+      // Export selected questions to Word/Doc
+      function exportWord() {
+        showStatus("⏳ Exporting to Doc…", "info");
+        google.script.run.withSuccessHandler(function(res){
+          if (res && res.url) showMessage("success", res.message, res.url);
+          else if (res && res.message) showMessage("success", res.message);
+          else showMessage("success", "Exported");
+          updateAnalytics();
+        }).withFailureHandler(function(err){
+          showMessage("error", "Export failed: " + (err.message || err));
+          updateAnalytics();
+        }).runExportWord(getInputs());
+      }
+
+      // Record a visit (send UA + path) then fetch analytics
+      function recordVisitAndLoad() {
+        try {
+          var payload = { path: window.location.pathname + window.location.search, ua: navigator.userAgent };
+          google.script.run.withSuccessHandler(function(){ updateAnalytics(); })
+                           .withFailureHandler(function(){ updateAnalytics(); })
+                           .logVisit(payload);
+        } catch(e) {
+          // fallback
+          updateAnalytics();
+        }
+      }
+
+      // Fetch analytics and render stats + recent activity
+      function updateAnalytics() {
+        google.script.run.withSuccessHandler(function(data){
+          // Stats
+          var statsDiv = document.getElementById("stats");
+          statsDiv.innerHTML = "";
+          statsDiv.innerHTML += "<div class='stat'>Total visits: <strong>" + (data.visits || 0) + "</strong></div>";
+          statsDiv.innerHTML += "<div class='stat'>Quizzes created: <strong>" + (data.createQuiz || 0) + "</strong></div>";
+          statsDiv.innerHTML += "<div class='stat'>Sheet syncs: <strong>" + (data.sync || 0) + "</strong></div>";
+          statsDiv.innerHTML += "<div class='stat'>Word exports: <strong>" + (data.exportWord || 0) + "</strong></div>";
+          statsDiv.innerHTML += "<div class='stat'>Unique users: <strong>" + ((data.uniqueUsers && data.uniqueUsers.length) || 0) + "</strong></div>";
+
+          // Recent activity
+          var recent = document.getElementById("recent");
+          recent.innerHTML = "<strong style='display:block;margin-bottom:6px;'>Recent activity</strong>";
+          if (data.last && data.last.length) {
+            data.last.forEach(function(r){
+              var ts = r[0] || "";
+              var act = r[1] || "";
+              var det = r[2] || "";
+              var link = r[3] || "";
+              var html = "<div class='recent-row'><div style='font-size:12px;color:#6b7280;'>" + ts + "</div>";
+              html += "<div style='font-weight:600;margin-top:6px;'>" + act + "</div>";
+              html += "<div style='margin-top:6px;font-size:13px;color:#374151;'>" + det + "</div>";
+              if (link) html += "<div><a class='link' href='" + link + "' target='_blank' rel='noopener'>Open link</a></div>";
+              html += "</div>";
+              recent.innerHTML += html;
+            });
+          } else {
+            recent.innerHTML += "<div class='small' style='color:#6b7280;margin-top:6px;'>No recent events</div>";
+          }
+        }).withFailureHandler(function(err){
+          document.getElementById("stats").innerHTML = "<div class='small' style='color:#991b1b'>Analytics load failed</div>";
+        }).getAnalytics();
+      }
+
+      // Init: load saved config and record visit
+      document.addEventListener("DOMContentLoaded", function(){
+        loadConfiguration();
+        recordVisitAndLoad();
+      });
+  </script>
+  <p style="font-size:12px;color:#777;text-align:center;">
+    Free educational tool • Runs entirely in your Google Drive • ©drnareshchauhan
+  </p>
+</body>
+
+</html>
